@@ -1,0 +1,1415 @@
+{
+  "name": "My workflow 10",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -860,
+        1186.5
+      ],
+      "id": "017b234a-cdc3-4109-9ae7-ba05b6ac4133"
+    },
+    {
+      "parameters": {
+        "url": "https://www.spektrodesign.com/feed/",
+        "options": {}
+      },
+      "name": "RSS Spektro Design",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        0
+      ],
+      "id": "5af3ead2-9005-4507-b84d-c2339fc76e98",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "url": "https://salmonesdechile.cl/feed/",
+        "options": {}
+      },
+      "name": "RSS Salmones de Chile",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        200
+      ],
+      "id": "197f673c-6184-452d-b745-318c4faabb04",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const workflowStaticData = $getWorkflowStaticData('global');\n\nif (!workflowStaticData.processedItems) {\n  workflowStaticData.processedItems = [];\n}\n\nconst processedItemsSet = new Set(workflowStaticData.processedItems);\n\nconst items = $input.all();\nconst newItems = [];\n\nfor (const item of items) {\n  const id = item.json.guid || item.json.link;\n  \n  if (!processedItemsSet.has(id)) {\n    let texto = item.json.contentSnippet || item.json.content || item.json.summary || item.json.title;\n    const oraciones = texto.split('.').map(s => s.trim()).filter(s => s.length > 0);\n    const numOraciones = Math.min(Math.max(2, oraciones.length), 4);\n    const resumen = oraciones.slice(0, numOraciones).join('. ') + '.';\n    \n    newItems.push({\n      json: {\n        ...item.json,\n        resumen: resumen,\n        date: item.json.pubDate || item.json.isoDate || new Date().toISOString(),\n        id: id\n      }\n    });\n    \n    processedItemsSet.add(id);\n  }\n}\n\nworkflowStaticData.processedItems = Array.from(processedItemsSet);\nworkflowStaticData.lastExecution = new Date().toISOString();\n\nnewItems.sort((a, b) => new Date(b.json.date) - new Date(a.json.date));\n\nconst noticiasPorFuente = {};\n\nfor (const item of newItems) {\n  const url = item.json.link;\n  let fuente = 'Fuente';\n  \n  const dominios = {\n    'diarioacuicola.cl': 'Diario Acuícola',    \n    'salmonesaustral.cl': 'Salmones Austral',\n    'infosalmon.cl': 'InfoSalmon',\n    'salmonchile.cl': 'SalmonChile',\n    'consejodelsalmon.cl': 'Consejo del Salmon',\n    'ifop.cl': 'IFOP',\n    'spektrodesign.com': 'Spektro Design',\n    'salmonesdechile.cl': 'Salmones de Chile',\n    'australis-seafoods.com': 'Australis Seafoods',\n    'aqua.cl': 'Aqua',\n    'mundoacuicola.cl': 'Mundo Acuicola',\n    'cookeaqua.cl': 'Cooke Aqua',\n    'partnerfish.cl': 'Partner Fish',\n    'ventisqueros.com': 'Ventisqueros',\n    'fiordoaustral.com': 'Fiordo Austral',\n    'salmonexpert.cl': 'Salmon Expert'\n  };\n  \n  for (const dominio in dominios) {\n    if (url.includes(dominio)) {\n      fuente = dominios[dominio];\n      break;\n    }\n  }\n  \n  if (!noticiasPorFuente[fuente]) {\n    noticiasPorFuente[fuente] = [];\n  }\n  \n  noticiasPorFuente[fuente].push(item.json);\n}\n\nlet htmlNoticias = '';\n\nObject.entries(noticiasPorFuente).forEach(([fuente, noticiasGrupo], indexGrupo) => {\n  htmlNoticias += `\n  <div class=\"source-section\">\n    <h3 class=\"source-title\">${fuente}</h3>\n  </div>\n  `;\n  \n  noticiasGrupo.forEach((noticia, indexNoticia) => {\n    const fechaNoticia = noticia.date ? new Date(noticia.date).toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : '';\n    \n    htmlNoticias += `\n    <article class=\"news-item\">\n      <h2>${noticia.title}</h2>\n      <div class=\"meta-row\">\n        <div class=\"source-tag\">${fuente}</div>\n        <div class=\"date-tag\">${fechaNoticia}</div>\n      </div>\n      <div class=\"summary\">${noticia.resumen}</div>\n      <div class=\"button-container\">\n        <a href=\"${noticia.link}\" class=\"read-more\" target=\"_blank\">Leer más</a>\n      </div>\n    </article>\n    `;\n    \n    if (indexNoticia < noticiasGrupo.length - 1) {\n      htmlNoticias += `<div class=\"news-separator\"></div>`;\n    }\n  });\n  \n  if (indexGrupo < Object.keys(noticiasPorFuente).length - 1) {\n    htmlNoticias += `<div class=\"source-group-separator\"></div>`;\n  }\n});\n\nconst emailTemplate = `<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <style>\n    body {\n      font-family: 'Segoe UI', Helvetica, Arial, sans-serif;\n      line-height: 1.6;\n      color: #333;\n      max-width: 800px;\n      margin: 0 auto;\n      padding: 20px;\n      background-color: #f9f9f9;\n    }\n    \n   .header {\n      background-color: #005f73;\n      color: white;\n      padding: 30px;\n      border-radius: 8px;\n      margin-bottom: 30px;\n      text-align: center;\n    }\n    \n    .header h1 {\n      margin: 0;\n      font-size: 28px;\n      font-weight: 600;\n    }\n    \n    .header p {\n      margin: 10px 0 0;\n      opacity: 0.9;\n      font-size: 16px;\n    }\n    \n    .news-container {\n      background: white;\n      border-radius: 8px;\n      box-shadow: 0 2px 4px rgba(0,0,0,0.1);\n      overflow: hidden;\n    }\n    \n    .news-item {\n      padding: 25px;\n      margin-bottom: 15px;\n      transition: background-color 0.3s;\n    }\n    \n    .news-separator {\n      height: 1px;\n      background-color: #c5c5c5;\n      margin: 25px 0;\n    }\n\n    .source-section {\n      margin: 40px 0 20px;\n    }\n\n    .source-title {\n      color: #005f73;\n      font-size: 24px;\n      text-align: center;\n      padding: 15px;\n      background-color: #e0f2fe;\n      border-radius: 8px;\n      margin: 0 0 30px;\n    }\n\n    .source-group-separator {\n      height: 2px;\n      background-color: #005f73;\n      margin: 40px 0;\n      opacity: 0.2;\n    }\n    \n    .news-item:last-child {\n      border-bottom: none;\n    }\n    \n    .news-item:hover {\n      background-color: #f8f9fa;\n    }\n    \n    .meta-row {\n      display: flex;\n      justify-content: center;\n      align-items: center;\n      margin-top: 5px;\n      margin-bottom: 15px;\n      text-align: center;\n    }\n    \n    .source-tag {\n      display: inline-block;\n      padding: 4px 8px;\n      background-color: #e9ecef;\n      color: #495057;\n      border-radius: 4px;\n      font-size: 14px;\n    }\n    \n    .date-tag {\n      display: inline-block;\n      color: #6c757d;\n      font-size: 14px;\n      font-style: italic;\n    }\n    \n    .meta-row {\n      display: flex;\n      justify-content: center;\n      align-items: center;\n      gap: 20px;\n      margin: 15px 0;\n      position: relative;\n    }\n    \n    .meta-row::before {\n      content: \"•\";\n      color: #0077b6;\n      font-size: 16px;\n      position: absolute;\n      left: 50%;\n      transform: translateX(-50%);\n    }\n    \n    .source-tag {\n      display: inline-block;\n      margin-right: 10px;\n      padding: 6px 12px;\n      background-color: #e0f2fe;\n      color: #0077b6;\n      border-radius: 6px;\n      font-size: 14px;\n      font-weight: 500;\n    }\n    \n    .date-tag {\n      display: inline-block;\n      color: #64748b;\n      font-size: 14px;\n      font-style: italic;\n    }\n    \n    h2 {\n      color: #094067;\n      margin: 0 0 25px;\n      font-size: 22px;\n      line-height: 1.4;\n      text-align: center;\n      padding-left: 20px;\n      padding-right: 20px;\n      padding-bottom: 15px;\n    }\n    \n    .summary {\n      color: #4a5568;\n      margin-bottom: 20px;\n      font-size: 16px;\n      padding-left: 20px;\n      padding-right: 20px;\n      padding-bottom: 15px;\n      border-bottom: 1px dotted #eee;\n      text-align: center;\n    }\n    \n    .button-container {\n      text-align: center;\n      margin-top: 25px;\n      margin-bottom: 25px;\n    }\n    \n    .read-more {\n      display: inline-block;\n      width: 120px;\n      padding: 10px 20px;\n      background-color: #0077b6;\n      color: white;\n      font-size: 18px;\n      text-decoration: none;\n      border-radius: 6px;\n      font-weight: 500;\n      text-align: center;\n      transition: background-color 0.3s;\n    }\n    \n    .read-more:hover {\n      background-color: #023e8a;\n    }\n    \n    .meta {\n      color: #6c757d;\n      font-size: 14px;\n      margin-top: 15px;\n    }\n    \n    .footer {\n      text-align: center;\n      padding: 20px;\n      color: #6c757d;\n      font-size: 14px;\n    }\n  </style>\n</head>\n<body>\n  <div class=\"header\">\n    <h1>Resumen Diario Sector Pesquero</h1>\n    <p>{{fecha}}</p>\n  </div>\n  \n  <div class=\"news-container\">\n    {{noticias}}\n  </div>\n  \n  <div class=\"footer\">\n    <p>© {{año}} Sector Pesquero News.</p>\n  </div>\n</body>\n</html>`;\n\nconst noNewsTemplate = `<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <style>\n    body {\n      font-family: 'Segoe UI', Helvetica, Arial, sans-serif;\n      line-height: 1.6;\n      color: #333;\n      max-width: 800px;\n      margin: 0 auto;\n      padding: 20px;\n      background-color: #f9f9f9;\n    }\n    \n    .header {\n      background-color: #005f73;\n      color: white;\n      padding: 30px;\n      border-radius: 8px;\n      margin-bottom: 30px;\n      text-align: center;\n    }\n    \n    .header h1 {\n      margin: 0;\n      font-size: 28px;\n      font-weight: 600;\n    }\n    \n    .header p {\n      margin: 10px 0 0;\n      opacity: 0.9;\n      font-size: 16px;\n    }\n    \n    .no-news-container {\n      background: white;\n      border-radius: 8px;\n      box-shadow: 0 2px 4px rgba(0,0,0,0.1);\n      padding: 40px;\n      text-align: center;\n    }\n    \n    .no-news-icon {\n      font-size: 48px;\n      margin-bottom: 20px;\n      color: #0077b6;\n    }\n    \n    .no-news-message {\n      font-size: 24px;\n      color: #0077b6;\n      margin-bottom: 15px;\n    }\n    \n    .no-news-description {\n      color: #6c757d;\n      margin-bottom: 30px;\n    }\n    \n    .footer {\n      text-align: center;\n      margin-top: 40px;\n      padding-top: 20px;\n      border-top: 1px solid #dee2e6;\n      color: #6c757d;\n      font-size: 14px;\n    }\n  </style>\n</head>\n<body>\n  <div class=\"header\">\n    <h1>Sector Pesquero - Sin Novedades</h1>\n    <p>{{fecha}}</p>\n  </div>\n  \n  <div class=\"no-news-container\">\n    <div class=\"no-news-icon\">📰</div>\n    <h2 class=\"no-news-message\">Estás al día</h2>\n    <p class=\"no-news-description\">No hay noticias nuevas en el sector pesquero para mostrar hoy.</p>\n  </div>\n  \n  <div class=\"footer\">\n    <p>© {{año}} Sector Pesquero News.</p>\n  </div>\n</body>\n</html>`;\n\nlet emailContent;\nlet subject;\n\nif (newItems.length > 0) {\n  emailContent = emailTemplate\n    .replace('{{fecha}}', new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }))\n    .replace('{{noticias}}', htmlNoticias)\n    .replace('{{año}}', new Date().getFullYear().toString());\n  \n  subject = 'Resumen Diario Sector Pesquero';\n} else {\n  emailContent = noNewsTemplate\n    .replace('{{fecha}}', new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }))\n    .replace('{{año}}', new Date().getFullYear().toString());\n  \n  subject = 'Sector Pesquero - Sin Novedades';\n}\n\nreturn [{\n  json: {\n    subject: subject,\n    content: emailContent,\n    noNews: newItems.length === 0\n  }\n}];"
+      },
+      "name": "Process News",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        1535
+      ],
+      "id": "afee6bec-ff3e-4175-9042-ee93ecaeecb8"
+    },
+    {
+      "parameters": {
+        "fromEmail": "\"Noticias Sitecna\" <bastian.escudero@spektrodesign.com>",
+        "toEmail": "bastian.escudero@outlook.com,info@spektrodesign.com",
+        "subject": "={{$node['Process News'].json.subject}}",
+        "html": "={{$node['Process News'].json.content}}",
+        "options": {}
+      },
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        1535
+      ],
+      "id": "846a5d6f-12ba-4c46-869a-e51fdbb3b289",
+      "credentials": {
+        "smtp": {
+          "id": "ISdxwmz5DttMpJnI",
+          "name": "Bas SDesign"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "name": "Handle Errors",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        2400
+      ],
+      "id": "32ae1f92-eb37-4f30-ab63-1e659aa3ce99"
+    },
+    {
+      "parameters": {
+        "fromEmail": "bastian.escudero@spektrodesign.com",
+        "toEmail": "info@spektrodesign.com, bastian.escudero@outlook.com",
+        "subject": "=Error Newsletter",
+        "html": "=\"Error en el flujo\"",
+        "options": {}
+      },
+      "name": "Send Error Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        2400
+      ],
+      "id": "977a677b-fe9c-4c7b-9582-de9760c15d71",
+      "credentials": {
+        "smtp": {
+          "id": "ISdxwmz5DttMpJnI",
+          "name": "Bas SDesign"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://www.salmonchile.cl/feed/",
+        "options": {}
+      },
+      "id": "9b181549-6fd0-4928-acb3-96f2178ff244",
+      "name": "RSS: SalmonChile",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        560
+      ],
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "url": "https://www.consejodelsalmon.cl/feed/",
+        "options": {}
+      },
+      "id": "13fe4f43-0cc0-4462-956a-a09bf5b5dfbb",
+      "name": "RSS: Consejo del Salmon",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        760
+      ],
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "url": "https://www.ifop.cl/feed/",
+        "options": {}
+      },
+      "id": "8a91a77f-cc27-484b-a2b2-dadb64739f52",
+      "name": "RSS: IFOP",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        960
+      ],
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "url": "https://infosalmon.cl/feed/",
+        "options": {}
+      },
+      "id": "2bfc2f81-752d-4e8a-8493-847c2518a397",
+      "name": "RSS Info Salmon",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "position": [
+        -420,
+        400
+      ],
+      "typeVersion": 1.1,
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {},
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        2660
+      ],
+      "id": "6a79ba34-709e-47c8-80b8-932694e214bc"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        0
+      ],
+      "id": "b25b7356-9364-4d80-88ee-d867e9c7108a",
+      "name": "Salmones Austral Retry",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        400
+      ],
+      "id": "802539c5-19aa-4af5-9360-822328ca9aff",
+      "name": "Info Salmon Retry",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        560
+      ],
+      "id": "b2372264-eed6-4dfa-86bb-a5cc7d222d2e",
+      "name": "Salmon Chile Retry",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        760
+      ],
+      "id": "c14ebc05-11af-40f2-81a0-354e05d2127c",
+      "name": "Consejo del Salmon Retry",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        960
+      ],
+      "id": "951287dd-91da-49a0-92a1-b36418f114aa",
+      "name": "IFOP Retry",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        200
+      ],
+      "id": "d8d78a81-4fb9-423d-874c-9b22f801108e",
+      "name": "Salmones de Chile Retry",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "maxItems": 800
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        1535
+      ],
+      "id": "50b53159-e266-4830-aa75-7f3bbcba0dcf",
+      "name": "Limit",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "numberInputs": 10
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.1,
+      "position": [
+        660,
+        1380
+      ],
+      "id": "b08ededc-3805-49cd-ab08-522f0c8f22de",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "html": "<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <style>\n    body {\n      font-family: 'Segoe UI', Helvetica, Arial, sans-serif;\n      line-height: 1.6;\n      color: #333;\n      max-width: 800px;\n      margin: 0 auto;\n      padding: 20px;\n      background-color: #f9f9f9;\n    }\n    \n   .header {\n      background-color: #005f73;\n      color: white;\n      padding: 30px;\n      border-radius: 8px;\n      margin-bottom: 30px;\n      text-align: center;\n    }\n    \n    .header h1 {\n      margin: 0;\n      font-size: 28px;\n      font-weight: 600;\n    }\n    \n    .header p {\n      margin: 10px 0 0;\n      opacity: 0.9;\n      font-size: 16px;\n    }\n    \n    .news-container {\n      background: white;\n      border-radius: 8px;\n      box-shadow: 0 2px 4px rgba(0,0,0,0.1);\n      overflow: hidden;\n    }\n    \n    .news-item {\n      padding: 25px;\n      margin-bottom: 15px;\n      transition: background-color 0.3s;\n    }\n    \n    .news-separator {\n      height: 1px;\n      background-color: #c5c5c5;\n      margin: 25px 0;\n    }\n\n    .source-section {\n      margin: 40px 0 20px;\n    }\n\n    .source-title {\n      color: #005f73;\n      font-size: 24px;\n      text-align: center;\n      padding: 15px;\n      background-color: #e0f2fe;\n      border-radius: 8px;\n      margin: 0 0 30px;\n    }\n\n    .source-group-separator {\n      height: 2px;\n      background-color: #005f73;\n      margin: 40px 0;\n      opacity: 0.2;\n    }\n    \n    .news-item:last-child {\n      border-bottom: none;\n    }\n    \n    .news-item:hover {\n      background-color: #f8f9fa;\n    }\n    \n    .meta-row {\n      display: flex;\n      justify-content: center;\n      align-items: center;\n      margin-top: 5px;\n      margin-bottom: 15px;\n      text-align: center;\n    }\n    \n    .source-tag {\n      display: inline-block;\n      padding: 4px 8px;\n      background-color: #e9ecef;\n      color: #495057;\n      border-radius: 4px;\n      font-size: 14px;\n    }\n    \n    .date-tag {\n      display: inline-block;\n      color: #6c757d;\n      font-size: 14px;\n      font-style: italic;\n    }\n    \n    .meta-row {\n      display: flex;\n      justify-content: center;\n      align-items: center;\n      gap: 20px;\n      margin: 15px 0;\n      position: relative;\n    }\n    \n    .meta-row::before {\n      content: \"•\";\n      color: #0077b6;\n      font-size: 16px;\n      position: absolute;\n      left: 50%;\n      transform: translateX(-50%);\n    }\n    \n    .source-tag {\n      display: inline-block;\n      margin-right: 10px;\n      padding: 6px 12px;\n      background-color: #e0f2fe;\n      color: #0077b6;\n      border-radius: 6px;\n      font-size: 14px;\n      font-weight: 500;\n    }\n    \n    .date-tag {\n      display: inline-block;\n      color: #64748b;\n      font-size: 14px;\n      font-style: italic;\n    }\n    \n    h2 {\n      color: #094067;\n      margin: 0 0 25px;\n      font-size: 22px;\n      line-height: 1.4;\n      text-align: center;\n    }\n    \n    .summary {\n      color: #4a5568;\n      margin-bottom: 20px;\n      font-size: 16px;\n      padding-bottom: 15px;\n      border-bottom: 1px dotted #eee;\n      text-align: center;\n    }\n    \n    .button-container {\n      text-align: center;\n      margin-top: 25px;\n      margin-bottom: 25px;\n    }\n    \n    .read-more {\n      display: inline-block;\n      width: 120px;\n      padding: 10px 20px;\n      background-color: #0077b6;\n      color: white;\n      font-size: 18px;\n      text-decoration: none;\n      border-radius: 6px;\n      font-weight: 500;\n      text-align: center;\n      transition: background-color 0.3s;\n    }\n    \n    .read-more:hover {\n      background-color: #023e8a;\n    }\n    \n    .meta {\n      color: #6c757d;\n      font-size: 14px;\n      margin-top: 15px;\n    }\n    \n    .footer {\n      text-align: center;\n      padding: 20px;\n      color: #6c757d;\n      font-size: 14px;\n    }\n  </style>\n</head>\n<body>\n  <div class=\"header\">\n    <h1>Resumen Diario Sector Pesquero</h1>\n    <p>{{fecha}}</p>\n  </div>\n  \n  <div class=\"news-container\">\n    {{noticias}}\n  </div>\n  \n  <div class=\"footer\">\n    <p>© {{año}} Spektro Design. Todos los derechos reservados.</p>\n  </div>\n</body>\n</html>`;\n\n# Plantilla para cuando no hay noticias\n\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <style>\n    body {\n      font-family: 'Segoe UI', Helvetica, Arial, sans-serif;\n      line-height: 1.6;\n      color: #333;\n      max-width: 800px;\n      margin: 0 auto;\n      padding: 20px;\n      background-color: #f9f9f9;\n    }\n    \n    .header {\n      background-color: #005f73;\n      color: white;\n      padding: 30px;\n      border-radius: 8px;\n      margin-bottom: 30px;\n      text-align: center;\n    }\n    \n    .header h1 {\n      margin: 0;\n      font-size: 28px;\n      font-weight: 600;\n    }\n    \n    .header p {\n      margin: 10px 0 0;\n      opacity: 0.9;\n      font-size: 16px;\n    }\n    \n    .no-news-container {\n      background: white;\n      border-radius: 8px;\n      box-shadow: 0 2px 4px rgba(0,0,0,0.1);\n      padding: 40px;\n      text-align: center;\n    }\n    \n    .no-news-icon {\n      font-size: 48px;\n      margin-bottom: 20px;\n      color: #0077b6;\n    }\n    \n    .no-news-message {\n      font-size: 24px;\n      color: #0077b6;\n      margin-bottom: 15px;\n    }\n    \n    .no-news-description {\n      color: #6c757d;\n      margin-bottom: 30px;\n    }\n    \n    .footer {\n      text-align: center;\n      margin-top: 40px;\n      padding-top: 20px;\n      border-top: 1px solid #dee2e6;\n      color: #6c757d;\n      font-size: 14px;\n    }\n  </style>\n</head>\n<body>\n  <div class=\"header\">\n    <h1>Sector Pesquero - Sin Novedades</h1>\n    <p>{{fecha}}</p>\n  </div>\n  \n  <div class=\"no-news-container\">\n    <div class=\"no-news-icon\">📰</div>\n    <h2 class=\"no-news-message\">Estás al día</h2>\n    <p class=\"no-news-description\">No hay noticias nuevas en el sector pesquero para mostrar hoy.</p>\n  </div>\n  \n  <div class=\"footer\">\n    <p>© {{año}} Sector Pesquero News.</p>\n  </div>\n</body>\n</html>"
+      },
+      "name": "Email Template",
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        2660
+      ],
+      "id": "e77760c3-947c-4359-a171-32d28774709c"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Resetear Persistencia Temp\nconst workflowStaticData = $getWorkflowStaticData('global');\nworkflowStaticData.processedItems = [];\nworkflowStaticData.lastExecution = null;\nreturn [];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1180,
+        1200
+      ],
+      "id": "17b089c5-f7fa-44cf-ab23-5ca933d9364c",
+      "name": "Reset DB"
+    },
+    {
+      "parameters": {
+        "url": "https://www.aqua.cl/feed/",
+        "options": {}
+      },
+      "id": "cca09f2a-39c6-4040-9847-61b77f221cde",
+      "name": "RSS: Aqua",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        1360
+      ],
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        1360
+      ],
+      "id": "edc84a0c-607e-4f3f-9df4-d4d01e9e4ab4",
+      "name": "Aqua Retry",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "https://www.mundoacuicola.cl/feed/",
+        "options": {}
+      },
+      "id": "b7306005-dfea-4450-a859-4c87e1081f74",
+      "name": "RSS: Mundo Acuicola",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        1560
+      ],
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        1560
+      ],
+      "id": "c250c5fd-e8d0-458c-9584-3ce051aeeb5d",
+      "name": "Mundo Acuicola Retry",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        2460
+      ],
+      "id": "b9b511ba-cf77-4140-b413-27879860149e",
+      "name": "Diario Acuicola Retry",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "url": "https://cookeaqua.cl/feed/",
+        "options": {}
+      },
+      "id": "b0958ca2-3389-45b8-a36b-e9516acc3825",
+      "name": "RSS: CookeAqua",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        1760
+      ],
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        1760
+      ],
+      "id": "9ca34c37-80be-4355-b000-f3ef00f44770",
+      "name": "CookeAqua Retry",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "https://www.australis-seafoods.com/feed/",
+        "options": {}
+      },
+      "id": "e758f73d-382d-40ae-9c02-b39ff66ec8f5",
+      "name": "RSS: Australis Seafoods",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        1160
+      ],
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        1160
+      ],
+      "id": "c133da88-0241-4664-83d5-ac9f3daefbb6",
+      "name": "Australis Seafoods Retry",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "https://partnerfish.cl/feed/",
+        "options": {}
+      },
+      "id": "6a8e4b7e-fcbf-48c9-bb91-22e7f44b5617",
+      "name": "RSS: PartnerFish",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        1920
+      ],
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        1920
+      ],
+      "id": "653e7c9b-3dd6-4531-b4b0-be3074afc10a",
+      "name": "PartnerFish Retry",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "https://ventisqueros.com/feed/",
+        "options": {}
+      },
+      "id": "57657fa2-2ea5-4f6c-b660-ea0a8ca9e640",
+      "name": "RSS: Ventisqueros",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        2100
+      ],
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        2100
+      ],
+      "id": "46640625-f5e1-421d-9b5f-16d2a45be44c",
+      "name": "Ventisqueros Retry",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "https://fiordoaustral.com/feed/",
+        "options": {}
+      },
+      "id": "b33abcc6-5373-4aa4-a5da-8bce8a33aa13",
+      "name": "RSS: Fiordo Austral",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        2280
+      ],
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        2280
+      ],
+      "id": "38c0b6ba-82ab-4582-a9d1-c1157e004014",
+      "name": "Fiordo Austral Retry",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        2660
+      ],
+      "id": "42952fda-e693-4c45-9c49-7c8d8e6c3901",
+      "name": "Salmon Expert Retry",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "newsHtml",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -20,
+        2460
+      ],
+      "id": "20399304-e674-47fc-a781-7070ad2c69bd",
+      "name": "Split Diario Acuicola"
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "dataPropertyName": "newsHtml",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "title",
+              "cssSelector": "a.text-dark"
+            },
+            {
+              "key": "link",
+              "cssSelector": "a.text-dark",
+              "returnValue": "attribute",
+              "attribute": "href"
+            },
+            {
+              "key": "pubDate",
+              "cssSelector": ".mb-1.text-muted.small"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        180,
+        2460
+      ],
+      "id": "4575d840-492a-4dc2-9334-b548b494b11a",
+      "name": "Extract Details Diario Acuicola"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Obtener los datos extraídos del nodo anterior\nconst item = $input.item.json;\n// Base URL para construir enlaces si es necesario\nconst baseUrl = 'https://www.diarioacuicola.cl';\n\nlet link = item.link || '';\n\n// --- Construcción de URL absoluta simplificada ---\nif (link && link.startsWith('/')) {\n    link = baseUrl + link; // Concatenación simple\n} else if (link && !link.startsWith('http')) {\n    // Si el formato relativo es inesperado, se descarta\n    link = '';\n}\n// Si ya empieza con http, se deja como está.\n// --- Fin construcción URL ---\n\n\nlet isoDate = new Date().toISOString(); // Fallback por defecto\n\n// --- Parseo de Fecha desde pubDateText ---\n// (Asegúrate que el nodo HTML anterior extrae la fecha texto a la key 'pubDateText')\n// Si tu nodo HTML usa la key 'pubDate' para el texto, cambia item.pubDateText por item.pubDate aquí abajo.\nif (item.pubDateText) { // <--- Verifica esta key ('pubDateText' o 'pubDate')\n  const dateText = item.pubDateText.trim();\n  try {\n    // Intenta manejar \"Hace X horas/minutos\" (usa fallback)\n    if (dateText.toLowerCase().includes('hace')) {\n       // Mantiene isoDate como la fecha actual (fallback)\n    } else {\n      // Intenta parsear formato \"DD de Mes de YYYY\" o similar\n      const months = {\n        'enero': 0, 'febrero': 1, 'marzo': 2, 'abril': 3, 'mayo': 4, 'junio': 5,\n        'julio': 6, 'agosto': 7, 'septiembre': 8, 'octubre': 9, 'noviembre': 10, 'diciembre': 11\n      };\n      const parts = dateText.toLowerCase().split(' ');\n      // Busca día (índice 0), mes (índice 2), año (índice 4)\n      if (parts.length >= 5 && months[parts[2]] !== undefined) {\n        const day = parseInt(parts[0], 10);\n        const month = months[parts[2]];\n        const year = parseInt(parts[4], 10);\n        if (!isNaN(day) && !isNaN(year)) {\n          const parsedDate = new Date(Date.UTC(year, month, day));\n           if (!isNaN(parsedDate.getTime())) {\n            isoDate = parsedDate.toISOString();\n          }\n        }\n      }\n    }\n  } catch (e) {\n    // En caso de error de parseo, se usa el fallback isoDate (fecha actual)\n    console.error(`Error parseando pubDateText: \"${dateText}\". Error: ${e.message}`);\n  }\n}\n// --- Fin Parseo Fecha ---\n\n// Usar el link como GUID si existe, sino crear uno aleatorio\nconst guid = link || `${baseUrl}/article_${Date.now()}_${Math.random()}`;\n\n// Construir el objeto final con la estructura { json: { ... } }\n// que espera tu nodo 'Process News' original\nconst finalItem = {\n  json: {\n    title: item.title ? item.title.trim() : 'Sin Título',\n    link: link, // Usa la variable 'link' procesada\n    guid: guid,\n    pubDate: isoDate, // Fecha formateada o fallback\n    isoDate: isoDate, // Fecha formateada o fallback\n    // Dejar vacíos los campos que no se extraen de la lista principal\n    contentSnippet: '',\n    content: '',\n    resumen: ''\n  }\n};\n\n// --- Filtro Reactivado ---\n// Descarta items que no tengan un enlace o título válido\nif (!finalItem.json.link || !finalItem.json.title || finalItem.json.title === 'Sin Título') {\n  // Devolver null hace que n8n descarte este item y no pase al siguiente nodo\n  return null;\n}\n// --- Fin Filtro ---\n\n// Devolver el item formateado para el siguiente nodo\n// Devuelve la estructura completa { json: {...} } para que Process News la reciba bien\nreturn finalItem;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        2460
+      ],
+      "id": "5f7b3b8d-6d2c-4500-a0e7-787ac08baa6c",
+      "name": "Clean Data Diario Acuicola"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Obtener los datos extraídos del nodo anterior\nconst item = $input.item.json;\n// Base URL (aunque los links parecen absolutos, es bueno tenerla)\nconst baseUrl = 'https://www.salmonexpert.cl';\n\nlet link = item.link || '';\n\n// Validar si el link es absoluto (Salmon Expert los provee así)\nif (link && !link.startsWith('http')) {\n    // Si por alguna razón no lo fuera, intentar construir (o descartar)\n    console.warn(`Enlace inesperado no absoluto de Salmon Expert: \"${link}\". Intentando tratar como relativo.`);\n     try {\n        // Podríamos intentar concatenar, pero si no empieza con http O /, es raro\n        link = new URL(link, baseUrl).href; // Intentar constructor URL como último recurso\n     } catch(e) {\n        console.error(`No se pudo procesar el enlace de Salmon Expert: \"${link}\". Descartando.`);\n        link = '';\n     }\n}\n\nlet isoDate = new Date().toISOString(); // Fallback por defecto\n\n// --- Parseo de Fecha desde atributo datetime ---\n// El nodo HTML (Extract Details) debería haber extraído el atributo 'datetime' a la key 'pubDate'\nif (item.pubDate) {\n  try {\n    // El valor ya debería ser formato ISO 8601 o similar parseable por Date\n    const parsedDate = new Date(item.pubDate);\n    if (!isNaN(parsedDate.getTime())) { // Validar si la fecha es correcta\n      isoDate = parsedDate.toISOString();\n    } else {\n      console.warn(`Formato datetime inválido recibido de Salmon Expert: \"${item.pubDate}\", usando fallback.`);\n    }\n  } catch (e) {\n    console.error(`Error parseando fecha datetime de Salmon Expert: \"${item.pubDate}\". Error: ${e.message}`);\n    // Se usa el fallback isoDate (fecha actual)\n  }\n} else {\n    console.warn(\"No se encontró atributo datetime (pubDate) de Salmon Expert, usando fallback.\");\n}\n// --- Fin Parseo Fecha ---\n\n// Usar el link como GUID si existe, sino crear uno aleatorio\nconst guid = link || `${baseUrl}/article_${Date.now()}_${Math.random()}`;\n\n// Construir el objeto final con la estructura { json: { ... } }\nconst finalItem = {\n  json: {\n    title: item.title ? item.title.trim() : 'Sin Título',\n    link: link, // Usa la variable 'link' procesada\n    guid: guid,\n    pubDate: isoDate, // Fecha formateada o fallback\n    isoDate: isoDate, // Fecha formateada o fallback\n    // No hay resumen en la página de lista de Salmon Expert\n    contentSnippet: '',\n    content: '',\n    resumen: ''\n  }\n};\n\n// --- Filtro ---\n// Descarta items que no tengan un enlace o título válido\nif (!finalItem.json.link || !finalItem.json.title || finalItem.json.title === 'Sin Título') {\n  console.warn(\"Item de Salmon Expert descartado por falta de link o título válido:\", finalItem.json);\n  return null;\n}\n// --- Fin Filtro ---\n\n// Devolver el item formateado para el nodo Merge\nreturn finalItem;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        2660
+      ],
+      "id": "5c3fb88d-d1e6-4a05-8a19-923a6c4b8007",
+      "name": "Clean Data Salmon Expert"
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "dataPropertyName": "newsHtml",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "title",
+              "cssSelector": "h2.headline"
+            },
+            {
+              "key": "link",
+              "cssSelector": "a[itemprop=url]",
+              "returnValue": "attribute",
+              "attribute": "href"
+            },
+            {
+              "key": "pubDate",
+              "cssSelector": "time",
+              "returnValue": "attribute",
+              "attribute": "datetime"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        180,
+        2660
+      ],
+      "id": "789469ab-f6bf-4441-8a65-c1d8d2e5ef09",
+      "name": "Extract Details Salmon Expert"
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "newsHtml",
+              "cssSelector": "article.column",
+              "returnValue": "html",
+              "returnArray": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        -220,
+        2660
+      ],
+      "id": "d44ba8e0-4507-417d-bd80-265d78da00bc",
+      "name": "Extract Containers Salmon Expert"
+    },
+    {
+      "parameters": {
+        "url": "https://www.salmonexpert.cl/tag/actualidad/",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -420,
+        2660
+      ],
+      "id": "d0bea79b-b2da-4f0b-8666-67a548dcb2a4",
+      "name": "Request Salmon Expert",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "url": "https://www.diarioacuicola.cl/noticias/actualidad",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -420,
+        2460
+      ],
+      "id": "d3c17f68-dd69-4a78-a9b2-f07eafda2515",
+      "name": "Request Diario Acuicola",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "numberInputs": 5
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.1,
+      "position": [
+        660,
+        2040
+      ],
+      "id": "d3f528e2-c435-4fd5-be0f-1b32a6edee5f",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "newsHtml",
+              "cssSelector": "div[class*='col-md-'].mb-2, div[class*='col-md-'].mb-3",
+              "returnValue": "html",
+              "returnArray": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        -220,
+        2460
+      ],
+      "id": "a0b7b444-745e-45ac-ba31-f6b60c779b91",
+      "name": "Extract Containers Diario Acuicola"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.1,
+      "position": [
+        900,
+        1535
+      ],
+      "id": "f97fe0a6-acbd-478e-95b7-a5044fd2c2de",
+      "name": "Merge2"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "newsHtml",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -20,
+        2660
+      ],
+      "id": "2de7f04c-5588-4420-9f09-0489692716c3",
+      "name": "Split Salmon Expert"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Salmones Austral Retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Salmones de Chile Retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Info Salmon Retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Salmon Chile Retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Consejo del Salmon Retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IFOP Retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Reset DB",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Australis Seafoods Retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Aqua Retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mundo Acuicola Retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CookeAqua Retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "PartnerFish Retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ventisqueros Retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fiordo Austral Retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Diario Acuicola Retry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Salmon Expert Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS Spektro Design": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS Salmones de Chile": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Process News": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Errors": {
+      "main": [
+        [
+          {
+            "node": "Send Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS: SalmonChile": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "RSS: Consejo del Salmon": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "RSS: IFOP": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "RSS Info Salmon": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Email Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salmones Austral Retry": {
+      "main": [
+        [
+          {
+            "node": "RSS Spektro Design",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Info Salmon Retry": {
+      "main": [
+        [
+          {
+            "node": "RSS Info Salmon",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salmon Chile Retry": {
+      "main": [
+        [
+          {
+            "node": "RSS: SalmonChile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consejo del Salmon Retry": {
+      "main": [
+        [
+          {
+            "node": "RSS: Consejo del Salmon",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IFOP Retry": {
+      "main": [
+        [
+          {
+            "node": "RSS: IFOP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salmones de Chile Retry": {
+      "main": [
+        [
+          {
+            "node": "RSS Salmones de Chile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Process News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aqua Retry": {
+      "main": [
+        [
+          {
+            "node": "RSS: Aqua",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mundo Acuicola Retry": {
+      "main": [
+        [
+          {
+            "node": "RSS: Mundo Acuicola",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Diario Acuicola Retry": {
+      "main": [
+        [
+          {
+            "node": "Request Diario Acuicola",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CookeAqua Retry": {
+      "main": [
+        [
+          {
+            "node": "RSS: CookeAqua",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Australis Seafoods Retry": {
+      "main": [
+        [
+          {
+            "node": "RSS: Australis Seafoods",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PartnerFish Retry": {
+      "main": [
+        [
+          {
+            "node": "RSS: PartnerFish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ventisqueros Retry": {
+      "main": [
+        [
+          {
+            "node": "RSS: Ventisqueros",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fiordo Austral Retry": {
+      "main": [
+        [
+          {
+            "node": "RSS: Fiordo Austral",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS: Australis Seafoods": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 6
+          }
+        ]
+      ]
+    },
+    "RSS: Aqua": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 7
+          }
+        ]
+      ]
+    },
+    "RSS: Mundo Acuicola": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 8
+          }
+        ]
+      ]
+    },
+    "RSS: CookeAqua": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 9
+          }
+        ]
+      ]
+    },
+    "Salmon Expert Retry": {
+      "main": [
+        [
+          {
+            "node": "Request Salmon Expert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Diario Acuicola": {
+      "main": [
+        [
+          {
+            "node": "Extract Details Diario Acuicola",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Details Diario Acuicola": {
+      "main": [
+        [
+          {
+            "node": "Clean Data Diario Acuicola",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Data Diario Acuicola": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Extract Details Salmon Expert": {
+      "main": [
+        [
+          {
+            "node": "Clean Data Salmon Expert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Containers Salmon Expert": {
+      "main": [
+        [
+          {
+            "node": "Split Salmon Expert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request Salmon Expert": {
+      "main": [
+        [
+          {
+            "node": "Extract Containers Salmon Expert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request Diario Acuicola": {
+      "main": [
+        [
+          {
+            "node": "Extract Containers Diario Acuicola",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS: PartnerFish": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS: Ventisqueros": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "RSS: Fiordo Austral": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Clean Data Salmon Expert": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Extract Containers Diario Acuicola": {
+      "main": [
+        [
+          {
+            "node": "Split Diario Acuicola",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge2": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Salmon Expert": {
+      "main": [
+        [
+          {
+            "node": "Extract Details Salmon Expert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "cdf91a66-b7da-4bc6-945d-43ac5576375d",
+  "meta": {
+    "instanceId": "9f08a9366573de2958428e94687dec311fe310145dfa468ea7d54552b09096bd"
+  },
+  "id": "GzQGil0hPDi3NXIn",
+  "tags": []
+}
