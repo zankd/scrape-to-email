@@ -1,5 +1,5 @@
 {
-  "name": "Scrape News to email",
+  "name": "Scrape News to Email",
   "nodes": [
     {
       "parameters": {
